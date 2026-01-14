@@ -4,48 +4,72 @@ import { WebcastPushConnection } from "tiktok-live-connector";
 const app = express();
 app.use(express.json());
 
-// 🔒 Token simple (seguridad básica)
 const API_KEY = process.env.API_KEY || "123456";
 
-// Usuario que está en LIVE
-const TIKTOK_USER = process.env.TIKTOK_USER || "TU_USUARIO_TIKTOK";
+let tiktok = null;
+let currentUser = null;
+let gifts = [];
 
-let lastGift = null;
+// 🔌 Conectar a un LIVE
+async function connectToTikTok(username) {
+    if (tiktok) {
+        try { tiktok.disconnect(); } catch {}
+    }
 
-// TikTok LIVE
-const tiktok = new WebcastPushConnection(TIKTOK_USER);
+    gifts = [];
+    currentUser = username;
 
-tiktok.connect()
-    .then(() => console.log("✅ Conectado a TikTok LIVE"))
-    .catch(err => console.error("❌ Error TikTok:", err));
+    tiktok = new WebcastPushConnection(username);
 
-// Escuchar donaciones
-tiktok.on("gift", (data) => {
-    lastGift = {
-        user: data.uniqueId,
-        gift: data.giftName,
-        count: data.repeatCount
-    };
+    await tiktok.connect();
 
-    console.log("🎁 Donación:", lastGift);
-});
+    tiktok.on("gift", (data) => {
+        gifts.push({
+            user: data.uniqueId,
+            gift: data.giftName,
+            count: data.repeatCount
+        });
 
-// Endpoint para Roblox
-app.get("/gift", (req, res) => {
+        console.log("🎁", data.uniqueId, data.giftName);
+    });
+}
+
+// 🔐 Middleware simple
+function auth(req, res, next) {
     if (req.headers["x-api-key"] !== API_KEY) {
         return res.status(403).json({ error: "No autorizado" });
     }
+    next();
+}
 
-    res.json(lastGift || {});
+// 📌 Roblox manda el usuario TikTok
+app.post("/set-user", auth, async (req, res) => {
+    const { username } = req.body;
+
+    if (!username) {
+        return res.status(400).json({ error: "Falta username" });
+    }
+
+    try {
+        await connectToTikTok(username);
+        res.json({ success: true, live: true });
+    } catch (e) {
+        res.json({ success: false, live: false });
+    }
 });
 
-// Health check (Railway)
+// 📌 Roblox pide donaciones
+app.get("/gifts", auth, (req, res) => {
+    res.json({
+        tiktokUser: currentUser,
+        gifts
+    });
+});
+
+// Health
 app.get("/", (req, res) => {
-    res.send("API TikTok → Roblox funcionando");
+    res.send("API TikTok ↔ Roblox OK");
 });
 
-// Railway usa PORT automático
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log("🚀 Servidor en puerto", PORT);
-});
+app.listen(PORT, () => console.log("🚀 API lista"));
