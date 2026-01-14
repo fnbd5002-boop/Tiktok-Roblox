@@ -6,39 +6,54 @@ app.use(express.json());
 
 let tiktok = null;
 let currentUser = null;
+
 let gifts = [];
+let followers = [];
 
 // ------------------------------
 // CONECTAR A TIKTOK LIVE
 // ------------------------------
-async function connectToTikTok(username) {
+function connectToTikTok(username) {
     try {
         if (tiktok) {
-            try {
-                tiktok.disconnect();
-            } catch {}
+            try { tiktok.disconnect(); } catch {}
         }
 
-        gifts = [];
         currentUser = username;
+        gifts = [];
+        followers = [];
 
         tiktok = new WebcastPushConnection(username);
 
-        // conectar SIN bloquear
-        tiktok.connect().then(() => {
-            console.log("✅ Conectado al LIVE de", username);
-        }).catch(err => {
-            console.error("❌ Error TikTok:", err.message);
-        });
+        // conectar en segundo plano
+        tiktok.connect()
+            .then(() => {
+                console.log("✅ Conectado al LIVE de", username);
+            })
+            .catch(err => {
+                console.error("❌ Error TikTok:", err.message);
+            });
 
+        // 🎁 DONACIONES
         tiktok.on("gift", (data) => {
-            gifts.push({
+            const gift = {
                 user: data.uniqueId,
                 gift: data.giftName,
                 count: data.repeatCount
-            });
+            };
 
-            console.log("🎁", data.uniqueId, data.giftName);
+            gifts.push(gift);
+            console.log("🎁 DONACIÓN:", gift);
+        });
+
+        // ➕ NUEVOS SEGUIDORES
+        tiktok.on("follow", (data) => {
+            const follower = {
+                user: data.uniqueId
+            };
+
+            followers.push(follower);
+            console.log("➕ NUEVO SEGUIDOR:", data.uniqueId);
         });
 
     } catch (err) {
@@ -50,7 +65,7 @@ async function connectToTikTok(username) {
 // ENDPOINTS
 // ------------------------------
 
-// Salud
+// Health
 app.get("/", (req, res) => {
     res.send("API TikTok ↔ Roblox OK");
 });
@@ -63,7 +78,7 @@ app.post("/set-user", (req, res) => {
         return res.status(400).json({ error: "Falta username" });
     }
 
-    // responder INMEDIATO
+    // responder rápido
     res.json({
         success: true,
         user: username
@@ -73,15 +88,15 @@ app.post("/set-user", (req, res) => {
     connectToTikTok(username);
 });
 
-// Roblox pide donaciones
-app.get("/gifts", (req, res) => {
+// Roblox pide eventos
+app.get("/events", (req, res) => {
     res.json({
         tiktokUser: currentUser,
-        gifts: gifts
+        gifts,
+        followers
     });
 });
 
-// ------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log("🚀 API lista en puerto", PORT);
